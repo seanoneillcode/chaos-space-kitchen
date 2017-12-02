@@ -12,16 +12,12 @@ import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
-import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Matrix4;
+import com.badlogic.gdx.math.Rectangle;
 import com.badlogic.gdx.math.Vector2;
 import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.physics.box2d.Body;
-import com.badlogic.gdx.physics.box2d.BodyDef;
 import com.badlogic.gdx.physics.box2d.Box2DDebugRenderer;
-import com.badlogic.gdx.physics.box2d.CircleShape;
-import com.badlogic.gdx.physics.box2d.Fixture;
-import com.badlogic.gdx.physics.box2d.FixtureDef;
 import com.badlogic.gdx.physics.box2d.World;
 
 public class TestGame extends ApplicationAdapter {
@@ -30,7 +26,16 @@ public class TestGame extends ApplicationAdapter {
 
 	public static final int WORLD_WIDTH = 480;
 	public static final int WORLD_HEIGHT = 360;
-	private static final float PLAYER_SPEED = 5000.0f;
+	private static final float PLAYER_SPEED = 10000.0f;
+	private static final float PICKUP_START_COOLDOWN = 0.2f;
+	private static final float THROW_COOLDOWN = 0.5f;
+	public static final float TILE_SIZE = 32.0f;
+	public static final float HALF_SIZE = 16.0f;
+	public static final float LIGHT_DENSITY = 0.001f;
+	public static final float HEAVY_DENSITY = 0.1f;
+
+	private static final float BOX_FORCE = 6.0f;
+
 	private float screenWidth;
 	private float screenHeight;
 	private OrthographicCamera camera;
@@ -40,7 +45,17 @@ public class TestGame extends ApplicationAdapter {
 	Body playerBody;
 	Vector2 lastDirection;
 	Vector2 inputVector;
+	Vector2 pickupAreaSize;
+	Vector2 pickupPos;
+	Vector2 pickedBoxPostion;
+	Vector2 thrownMove;
 	EntityFactory entityFactory;
+
+	Body pickedBox;
+	Body thrownBox;
+
+	float pickupCooldown;
+	float throwCooldown;
 
 	int numBoxes = 0;
 	public static final int WORLD_BUFFER = 16;
@@ -110,16 +125,25 @@ public class TestGame extends ApplicationAdapter {
 			batch.draw(boxImage, boxPos.x, boxPos.y);
 		}
 
-		batch.end();
 
-		debugRenderer.render(world,  new Matrix4(camera.combined));
+		//batch.draw(boxImage, pickupPos.x, pickupPos.y);
+
+		batch.end();
+		debugRenderer.render(world, new Matrix4(camera.combined));
 	}
 
 	public void resetLevel() {
 		lastDirection = new Vector2();
 		inputVector = new Vector2();
+		pickupPos = new Vector2();
+		thrownMove = new Vector2();
 		playerBody = entityFactory.createPlayer(world);
 		boxes = new ArrayList<Body>();
+		pickupAreaSize = new Vector2(TILE_SIZE, TILE_SIZE);
+		pickupCooldown = 0;
+		throwCooldown = 0;
+		pickedBox = null;
+		thrownBox = null;
 		for (int i = 0; i < numBoxes; i++) {
 			Vector2 randPos = new Vector2(
 					random(WORLD_BUFFER,WORLD_WIDTH - WORLD_BUFFER),
@@ -138,20 +162,43 @@ public class TestGame extends ApplicationAdapter {
 	// UPDATE
 
 	public void update() {
-		Vector2 newPos = getPlayerPos();
-		if (newPos.x < WORLD_BUFFER) {
-			newPos.x = WORLD_BUFFER;
+		setPlayerPos(worldConstrainedPosition(getPlayerPos()));
+		for (Body box : boxes) {
+			box.setTransform(worldConstrainedPosition(box.getPosition().cpy()), 0);
 		}
-		if (newPos.x > WORLD_WIDTH - WORLD_BUFFER) {
-			newPos.x = WORLD_WIDTH - WORLD_BUFFER;
+		pickupCooldown = pickupCooldown - Gdx.graphics.getDeltaTime();
+		throwCooldown = throwCooldown - Gdx.graphics.getDeltaTime();
+		if (pickedBox != null) {
+			Vector2 offset = getPlayerPos().cpy().add(0, TILE_SIZE);
+			pickedBoxPostion = offset;
+			pickedBox.setTransform(offset, 0);
 		}
-		if (newPos.y < WORLD_BUFFER) {
-			newPos.y = WORLD_BUFFER;
+		if (thrownBox != null) {
+			if (throwCooldown < 0) {
+				thrownBox = null;
+			} else {
+				thrownMove = thrownMove.scl(0.9f);
+				Vector2 pos = thrownBox.getPosition().cpy().add(thrownMove);
+				thrownBox.setTransform(pos.x, pos.y, 0);
+			}
 		}
-		if (newPos.y > WORLD_HEIGHT - WORLD_BUFFER) {
-			newPos.y = WORLD_HEIGHT - WORLD_BUFFER;
+	}
+
+	public Vector2 worldConstrainedPosition(Vector2 in) {
+		Vector2 out = in.cpy();
+		if (out.x < WORLD_BUFFER) {
+			out.x = WORLD_BUFFER;
 		}
-		setPlayerPos(newPos);
+		if (out.x > WORLD_WIDTH - WORLD_BUFFER) {
+			out.x = WORLD_WIDTH - WORLD_BUFFER;
+		}
+		if (out.y < WORLD_BUFFER) {
+			out.y = WORLD_BUFFER;
+		}
+		if (out.y > WORLD_HEIGHT - WORLD_BUFFER) {
+			out.y = WORLD_HEIGHT - WORLD_BUFFER;
+		}
+		return out;
 	}
 
 	// PLAYER
@@ -197,14 +244,21 @@ public class TestGame extends ApplicationAdapter {
 			playerBody.applyLinearImpulse(actualSpeed, 0, pos.x, pos.y, true);
 		}
 		if (isUpPressed) {
-			inputVector.y = inputVector.y - 1;
+			inputVector.y = inputVector.y + 1;
 			lastDirection = inputVector.cpy();
 			playerBody.applyLinearImpulse(0, actualSpeed, pos.x, pos.y, true);
 		}
 		if (isDownPressed) {
-			inputVector.y = inputVector.y + 1;
+			inputVector.y = inputVector.y - 1;
 			lastDirection = inputVector.cpy();
 			playerBody.applyLinearImpulse(0, -actualSpeed, pos.x, pos.y, true);
+		}
+		if (!isLeftPressed && !isRightPressed && !isDownPressed && !isUpPressed) {
+			playerBody.setLinearVelocity(0,0);
+		}
+
+		if (Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
+			pickupOrThrow();
 		}
 
 
@@ -213,5 +267,42 @@ public class TestGame extends ApplicationAdapter {
 		}
 	}
 
+	// ACTIONS
+
+	public void pickupOrThrow() {
+		if (pickedBox == null) {
+			if (pickupCooldown < 0) {
+				pickupCooldown = PICKUP_START_COOLDOWN;
+				Vector2 pos = getPlayerPos().cpy();
+				pos.add(lastDirection.x * TILE_SIZE, lastDirection.y * TILE_SIZE);
+				Rectangle pickupArea = new Rectangle(pos.x, pos.y, pickupAreaSize.x, pickupAreaSize.y);
+				pickupPos = pos.cpy();
+
+				for (Body box : boxes) {
+					Vector2 boxPos = box.getPosition();
+					Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
+					if (boxRect.overlaps(pickupArea)) {
+						pickedBox = box;
+					}
+				}
+			}
+		} else {
+			if (pickupCooldown < 0) {
+				pickupCooldown = PICKUP_START_COOLDOWN;
+				Vector2 pos = getPlayerPos().cpy();
+				pos.add(lastDirection.x * TILE_SIZE, lastDirection.y * TILE_SIZE);
+				pickedBox.setTransform(pos.x, pos.y, 0);
+				pickedBoxPostion = null;
+				throwCooldown = THROW_COOLDOWN;
+				thrownBox = pickedBox;
+				thrownMove = lastDirection.cpy();
+				thrownMove.scl(BOX_FORCE,BOX_FORCE);
+				pickedBox = null;
+			}
+		}
+
+
+
+	}
 
 }

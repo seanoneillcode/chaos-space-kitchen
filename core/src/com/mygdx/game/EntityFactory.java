@@ -1,5 +1,8 @@
 package com.mygdx.game;
 
+import static com.mygdx.game.TestGame.HALF_SIZE;
+import static com.mygdx.game.TestGame.HEAVY_DENSITY;
+import static com.mygdx.game.TestGame.LIGHT_DENSITY;
 import static com.mygdx.game.TestGame.WORLD_HEIGHT;
 import static com.mygdx.game.TestGame.WORLD_WIDTH;
 
@@ -26,12 +29,12 @@ public class EntityFactory {
         body.setLinearDamping(1.0f);
 
         CircleShape shape = new CircleShape();
-        shape.setRadius(16);
+        shape.setRadius(HALF_SIZE);
 
         FixtureDef fixtureDef = new FixtureDef();
         fixtureDef.shape = shape;
-        fixtureDef.density = 0.01f;
-        fixtureDef.friction = 0.1f;
+        fixtureDef.density = LIGHT_DENSITY;
+        fixtureDef.friction = 0.01f;
 
         Fixture fixture = body.createFixture(fixtureDef);
 
@@ -55,10 +58,10 @@ public class EntityFactory {
 
         Vector2[] vertices = new Vector2[4];
 
-        vertices[0] = new Vector2(-16f  , -16f  );
-        vertices[1] = new Vector2(-16f , 16f  );
-        vertices[2] = new Vector2(16f , 16f);
-        vertices[3] = new Vector2(16f , -16f);
+        vertices[0] = new Vector2(-HALF_SIZE  , -HALF_SIZE  );
+        vertices[1] = new Vector2(-HALF_SIZE , HALF_SIZE  );
+        vertices[2] = new Vector2(HALF_SIZE , HALF_SIZE);
+        vertices[3] = new Vector2(HALF_SIZE , -HALF_SIZE);
 
         PolygonShape shape = new PolygonShape();
 
@@ -66,7 +69,7 @@ public class EntityFactory {
 
         FixtureDef fixtureDef = new FixtureDef();
         fixtureDef.shape = shape;
-        fixtureDef.density = 0.04f;
+        fixtureDef.density = HEAVY_DENSITY;
         fixtureDef.friction = 0.2f;
 
         Fixture fixture = body.createFixture(fixtureDef);
