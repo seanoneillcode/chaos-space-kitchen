@@ -28,7 +28,7 @@ import com.badlogic.gdx.physics.box2d.World;
 public class TestGame extends ApplicationAdapter {
 
 	SpriteBatch batch;
-	Texture img, boxImage, targetImage, potTargetImage, dogImage, potatoImage, runningDogImage;
+	Texture img, boxImage, targetImage, potTargetImage, dogImage, potatoImage, runningDogImage, levelImage;
 
 	public static final int WORLD_WIDTH = 360; // 480
 	public static final int WORLD_HEIGHT = 240; // 360
@@ -86,6 +86,7 @@ public class TestGame extends ApplicationAdapter {
 
 	private BitmapFont font;
 
+	private Vector2 cameraPos;
 
 	List<MyBox> boxes = new ArrayList<MyBox>();
 	List<Enemy> enemies = new ArrayList<Enemy>();
@@ -112,6 +113,7 @@ public class TestGame extends ApplicationAdapter {
 		potatoImage = new Texture("potato.png");
 		dogImage = new Texture("dog.png");
 		runningDogImage = new Texture("runningDog.png");
+		levelImage = new Texture("level-01.png");
 
 		// fonts
 		loadFonts();
@@ -156,7 +158,7 @@ public class TestGame extends ApplicationAdapter {
 
 	@Override
 	public void render () {
-
+		camera.position.set(getLerpCamera());
 		camera.update();
 		batch.setProjectionMatrix(camera.combined);
 
@@ -166,14 +168,16 @@ public class TestGame extends ApplicationAdapter {
 		world.step(Gdx.graphics.getDeltaTime(), 6, 2);
 		playerBody.setAwake(true);
 
-		Gdx.gl.glClearColor(0.0f, 0.1f, 0.2f, 1);
+		Gdx.gl.glClearColor(0f, 0f, 0f, 1);
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
 		batch.begin();
 
 
+		Vector2 offset = new Vector2(camera.position.x, camera.position.y).sub(WORLD_WIDTH / 2.0f, WORLD_HEIGHT / 2.0f);
+		batch.draw(levelImage, 0, 0);
+
 		Vector2 pos = getDrawPlayerPos();
-		batch.draw(img, pos.x, pos.y);
 
 		for (Target target : targets) {
 			if (target.type.equals(Food.DOG)) {
@@ -201,24 +205,27 @@ public class TestGame extends ApplicationAdapter {
 			}
 		}
 
-		font.draw(batch, "" + score + "/" + scoreTarget, 20.0f, 220.0f);
+		// draw player
+		batch.draw(img, pos.x, pos.y);
+
+		font.draw(batch, "" + score + "/" + scoreTarget, 20.0f + offset.x, 220.0f + offset.y);
 		if (levelState == LevelState.PLAYING) {
-			font.draw(batch, "" + (int) levelCountdown + "s", 300.0f, 220.0f);
+			font.draw(batch, "" + (int) levelCountdown + "s", 300.0f + offset.x, 220.0f + + offset.y);
 		}
 
 		if (levelState == LevelState.OVER) {
-			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f, 220.0f);
-			font.draw(batch, "TOO MUCH PRESSURE", 80.0f, 150.0f);
-			font.draw(batch, "press 'Enter' to play again", 70.0f, 60.0f);
+			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f + offset.x, 220.0f + offset.y);
+			font.draw(batch, "TOO MUCH PRESSURE", 80.0f + offset.x, 150.0f + offset.y);
+			font.draw(batch, "press 'Enter' to play again", 70.0f + offset.x, 60.0f + offset.y);
 		}
 		if (levelState == LevelState.NEXT) {
-			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f, 220.0f);
-			font.draw(batch, "YOU DID IT!", 120.0f, 150.0f);
+			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f + offset.x, 220.0f + offset.y);
+			font.draw(batch, "YOU DID IT!", 120.0f + offset.x, 150.0f + offset.y);
 		}
 		if (levelState == LevelState.WON) {
-			font.draw(batch, "WELL DONE", 120.0f, 190.0f);
-			font.draw(batch, "YOU SURVIVED THE CHAOS KITCHEN", 4.0f, 150.0f);
-			font.draw(batch, "press 'Enter' to play again", 50.0f, 60.0f);
+			font.draw(batch, "WELL DONE", 120.0f + offset.x, 190.0f + offset.y);
+			font.draw(batch, "YOU SURVIVED THE CHAOS KITCHEN", 4.0f + offset.x, 150.0f + offset.y);
+			font.draw(batch, "press 'Enter' to play again", 50.0f + offset.x, 60.0f + offset.y);
 		}
 
 		//batch.draw(boxImage, pickupPos.x, pickupPos.y);
@@ -227,6 +234,19 @@ public class TestGame extends ApplicationAdapter {
 
 //		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
 	}
+
+	private Vector3 getLerpCamera() {
+		Vector2 pos = getPlayerPos();
+		Vector3 target = new Vector3(pos.x, pos.y, 0);
+		final float speed = 4.0f * Gdx.graphics.getDeltaTime();
+		float ispeed = 1.0f - speed;
+		Vector3 cameraPosition = camera.position.cpy();
+		cameraPosition.scl(ispeed);
+		target.scl(speed);
+		cameraPosition.add(target);
+		return cameraPosition;
+	}
+
 
 	public void resetGame() {
 		currentLevel = 0;
@@ -238,9 +258,11 @@ public class TestGame extends ApplicationAdapter {
 		for (MyBox box : boxes) {
 			world.destroyBody(box.body);
 		}
+		boxes.clear();
 		for (Enemy enemy : enemies) {
 			world.destroyBody(enemy.box.body);
 		}
+		enemies.clear();
 		if (playerBody != null) {
 			world.destroyBody(playerBody);
 		}
@@ -304,15 +326,14 @@ public class TestGame extends ApplicationAdapter {
 	// UPDATE
 
 	public void update() {
+		if (levelState == LevelState.PLAYING && enemies.size() == 0 && boxes.size() == 0) {
+			finishLevel();
+		}
+
 		if (levelCountdown > 0) {
 			levelCountdown = levelCountdown - Gdx.graphics.getDeltaTime();
 			if (levelCountdown < 0) {
-				if (score < scoreTarget) {
-					levelState = LevelState.OVER;
-				} else {
-					nextLevelCountdown = NEXT_LEVEL_TIMER;
-					levelState = LevelState.NEXT;
-				}
+				finishLevel();
 			}
 		}
 		if (nextLevelCountdown > 0) {
@@ -382,6 +403,16 @@ public class TestGame extends ApplicationAdapter {
 					}
 				}
 			}
+		}
+
+	}
+
+	public void finishLevel() {
+		if (score < scoreTarget) {
+			levelState = LevelState.OVER;
+		} else {
+			nextLevelCountdown = NEXT_LEVEL_TIMER;
+			levelState = LevelState.NEXT;
 		}
 	}
 
