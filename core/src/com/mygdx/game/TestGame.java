@@ -42,6 +42,7 @@ public class TestGame extends ApplicationAdapter {
 	public static final float HALF_SIZE = 16.0f;
 	public static final float LIGHT_DENSITY = 0.01f;
 	public static final float HEAVY_DENSITY = 0.04f;
+	public static final float NEXT_LEVEL_TIMER = 4.0f;
 
 	private static final float BOX_FORCE = 4.0f;
 	public static final float THROW_FRICTION = 0.94f;
@@ -79,6 +80,8 @@ public class TestGame extends ApplicationAdapter {
 	int score = 0;
 	int scoreTarget = 0;
 	float levelCountdown = 0;
+	float nextLevelCountdown = 0;
+	int currentLevel = 0;
 	LevelState levelState;
 
 	private BitmapFont font;
@@ -86,6 +89,7 @@ public class TestGame extends ApplicationAdapter {
 
 	List<MyBox> boxes = new ArrayList<MyBox>();
 	List<Enemy> enemies = new ArrayList<Enemy>();
+	List<LevelData> levelDatas = new ArrayList<LevelData>();
 
 	@Override
 	public void create () {
@@ -112,8 +116,18 @@ public class TestGame extends ApplicationAdapter {
 		// fonts
 		loadFonts();
 
-		// start game
+		// build levels
+		levelDatas.add(new LevelData(0, 4, 3, 10));
+		levelDatas.add(new LevelData(1, 4, 4, 11));
+//		levelDatas.add(new LevelData(3, 3, 5, 12));
+//		levelDatas.add(new LevelData(2, 6, 6, 13));
+//		levelDatas.add(new LevelData(4, 6, 7, 14));
+//		levelDatas.add(new LevelData(4, 7, 8, 15));
+//		levelDatas.add(new LevelData(8, 0, 8, 20));
+//		levelDatas.add(new LevelData(6, 8, 10, 25));
+//		levelDatas.add(new LevelData(4, 12, 12, 30));
 
+		// start game
 		resetGame();
 	}
 
@@ -188,30 +202,62 @@ public class TestGame extends ApplicationAdapter {
 		}
 
 		font.draw(batch, "" + score + "/" + scoreTarget, 20.0f, 220.0f);
-		font.draw(batch, "" + (int)levelCountdown + "s", 300.0f, 220.0f);
+		if (levelState == LevelState.PLAYING) {
+			font.draw(batch, "" + (int) levelCountdown + "s", 300.0f, 220.0f);
+		}
 
 		if (levelState == LevelState.OVER) {
-			if (score >= scoreTarget) {
-				font.draw(batch, "YOU DID IT!", 120.0f, 150.0f);
-			} else {
-				font.draw(batch, "TOO MUCH PRESSURE", 100.0f, 150.0f);
-			}
+			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f, 220.0f);
+			font.draw(batch, "TOO MUCH PRESSURE", 80.0f, 150.0f);
+			font.draw(batch, "press 'Enter' to play again", 70.0f, 60.0f);
+		}
+		if (levelState == LevelState.NEXT) {
+			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f, 220.0f);
+			font.draw(batch, "YOU DID IT!", 120.0f, 150.0f);
+		}
+		if (levelState == LevelState.WON) {
+			font.draw(batch, "WELL DONE", 120.0f, 190.0f);
+			font.draw(batch, "YOU SURVIVED THE CHAOS KITCHEN", 4.0f, 150.0f);
+			font.draw(batch, "press 'Enter' to play again", 50.0f, 60.0f);
 		}
 
 		//batch.draw(boxImage, pickupPos.x, pickupPos.y);
 
 		batch.end();
-		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
+
+//		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
 	}
 
 	public void resetGame() {
-		numBoxes = 2;
-		numEnemies = 1;
-		scoreTarget = 10;
-		score = 0;
-		levelCountdown = 30f;
+		currentLevel = 0;
 		levelState = LevelState.PLAYING;
-		resetLevel();
+		loadNextLevel();
+	}
+
+	public void loadNextLevel() {
+		for (MyBox box : boxes) {
+			world.destroyBody(box.body);
+		}
+		for (Enemy enemy : enemies) {
+			world.destroyBody(enemy.box.body);
+		}
+		if (playerBody != null) {
+			world.destroyBody(playerBody);
+		}
+		if (currentLevel < levelDatas.size()) {
+			LevelData levelData = levelDatas.get(currentLevel);
+			numBoxes = levelData.numBoxes;
+			numEnemies = levelData.numEnemies;
+			scoreTarget = levelData.scoreTarget;
+			score = 0;
+			levelCountdown = levelData.levelCountdown;
+			levelState = LevelState.PLAYING;
+			resetLevel();
+			currentLevel++;
+		} else {
+			// TODO YOU ARE WINRAR
+			levelState = LevelState.WON;
+		}
 	}
 
 	public void resetLevel() {
@@ -258,9 +304,22 @@ public class TestGame extends ApplicationAdapter {
 	// UPDATE
 
 	public void update() {
-		levelCountdown = levelCountdown - Gdx.graphics.getDeltaTime();
-		if (levelCountdown < 0) {
-			levelState = LevelState.OVER;
+		if (levelCountdown > 0) {
+			levelCountdown = levelCountdown - Gdx.graphics.getDeltaTime();
+			if (levelCountdown < 0) {
+				if (score < scoreTarget) {
+					levelState = LevelState.OVER;
+				} else {
+					nextLevelCountdown = NEXT_LEVEL_TIMER;
+					levelState = LevelState.NEXT;
+				}
+			}
+		}
+		if (nextLevelCountdown > 0) {
+			nextLevelCountdown = nextLevelCountdown - Gdx.graphics.getDeltaTime();
+			if (nextLevelCountdown < 0) {
+				loadNextLevel();
+			}
 		}
 		setPlayerPos(worldConstrainedPosition(getPlayerPos()));
 		for (MyBox box : boxes) {
@@ -419,9 +478,11 @@ public class TestGame extends ApplicationAdapter {
 		if (Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
 			pickupOrThrow();
 		}
-
 		if (Gdx.input.isKeyPressed(Input.Keys.ESCAPE)) {
 			Gdx.app.exit();
+		}
+		if (Gdx.input.isKeyPressed(Input.Keys.ENTER) && (levelState == LevelState.WON || levelState == LevelState.OVER) ) {
+			resetGame();
 		}
 	}
 
