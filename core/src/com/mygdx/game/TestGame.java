@@ -25,22 +25,26 @@ import com.badlogic.gdx.physics.box2d.World;
 public class TestGame extends ApplicationAdapter {
 
 	SpriteBatch batch;
-	Texture img, boxImage, targetImage, potTargetImage, dogImage, potatoImage;
+	Texture img, boxImage, targetImage, potTargetImage, dogImage, potatoImage, runningDogImage;
 
 	public static final int WORLD_WIDTH = 480;
 	public static final int WORLD_HEIGHT = 360;
-	private static final float PLAYER_SPEED = 10000.0f;
+	private static final float PLAYER_SPEED = 5f;
 	private static final float PICKUP_START_COOLDOWN = 0.2f;
+	public static final float AIR_COOLDOWN = 0.5f;
 	private static final float THROW_COOLDOWN = 0.5f;
 	public static final float TILE_SIZE = 32.0f;
 	public static final float HALF_SIZE = 16.0f;
-	public static final float LIGHT_DENSITY = 0.001f;
-	public static final float HEAVY_DENSITY = 0.1f;
+	public static final float LIGHT_DENSITY = 0.01f;
+	public static final float HEAVY_DENSITY = 0.04f;
 
 	private static final float BOX_FORCE = 4.0f;
 	public static final float THROW_FRICTION = 0.94f;
 
-	public static final float METRE = 16;
+	public static final float FROM_BOX2D = 16f;
+	public static final float TO_BOX2D = 0.0625f;
+	public static final float PLAYER_SIZE = 8;
+	public static final float ENEMY_SPEED = 3f;
 
 	private float screenWidth;
 	private float screenHeight;
@@ -66,11 +70,13 @@ public class TestGame extends ApplicationAdapter {
 	float throwCooldown;
 
 	int numBoxes = 0;
+	int numEnemies = 0;
 	int score = 0;
 	public static final int WORLD_BUFFER = 16;
 	public static final int TARGET_WORLD_BUFFER = 24;
 
 	List<MyBox> boxes = new ArrayList<MyBox>();
+	List<Enemy> enemies = new ArrayList<Enemy>();
 
 	@Override
 	public void create () {
@@ -92,9 +98,11 @@ public class TestGame extends ApplicationAdapter {
 		potTargetImage = new Texture("potTarget.png");
 		potatoImage = new Texture("potato.png");
 		dogImage = new Texture("dog.png");
+		runningDogImage = new Texture("runningDog.png");
 
 		// start game
-		numBoxes = 5;
+		numBoxes = 3;
+		numEnemies = 1;
 		score = 0;
 		resetLevel();
 	}
@@ -144,7 +152,7 @@ public class TestGame extends ApplicationAdapter {
 		}
 
 		for (MyBox box : boxes) {
-			Vector2 boxPos = box.body.getPosition();
+			Vector2 boxPos = fromBox2d(box.body.getPosition());
 			if (box.type.equals(Food.POTATO)) {
 				batch.draw(potatoImage, boxPos.x, boxPos.y);
 			}
@@ -153,7 +161,12 @@ public class TestGame extends ApplicationAdapter {
 			}
 		}
 
-
+		for (Enemy enemy : enemies) {
+			if (enemy.box.type.equals(Food.DOG)) {
+				Vector2 enemyPos = enemy.getPos();
+				batch.draw(runningDogImage, enemyPos.x, enemyPos.y);
+			}
+		}
 
 
 		//batch.draw(boxImage, pickupPos.x, pickupPos.y);
@@ -169,6 +182,7 @@ public class TestGame extends ApplicationAdapter {
 		thrownMove = new Vector2();
 		playerBody = entityFactory.createPlayer(world);
 		boxes = new ArrayList<MyBox>();
+		enemies = new ArrayList<Enemy>();
 		targets = new ArrayList<Target>();
 		pickupAreaSize = new Vector2(TILE_SIZE, TILE_SIZE);
 		pickupCooldown = 0;
@@ -183,6 +197,13 @@ public class TestGame extends ApplicationAdapter {
 					random(WORLD_BUFFER,WORLD_WIDTH - WORLD_BUFFER),
 					random(WORLD_BUFFER, WORLD_HEIGHT - WORLD_BUFFER));
 			boxes.add(entityFactory.createBox(world, randPos, types.get(MathUtils.random(0, 1))));
+		}
+		for (int j = 0; j < numEnemies; j++) {
+			Vector2 randPos = new Vector2(
+					random(WORLD_BUFFER,WORLD_WIDTH - WORLD_BUFFER),
+					random(WORLD_BUFFER, WORLD_HEIGHT - WORLD_BUFFER));
+
+			enemies.add(entityFactory.createEnemy(world, randPos, Food.DOG));
 		}
 		addTarget(Food.DOG);
 		addTarget(Food.POTATO);
@@ -200,22 +221,33 @@ public class TestGame extends ApplicationAdapter {
 	public void update() {
 		setPlayerPos(worldConstrainedPosition(getPlayerPos()));
 		for (MyBox box : boxes) {
-			box.body.setTransform(worldConstrainedPosition(box.body.getPosition().cpy()), 0);
+			box.body.setTransform(
+					toBox2d(worldConstrainedPosition(
+							fromBox2d(box.body.getPosition().cpy()))), 0);
 		}
 		pickupCooldown = pickupCooldown - Gdx.graphics.getDeltaTime();
 		throwCooldown = throwCooldown - Gdx.graphics.getDeltaTime();
 		if (pickedBox != null) {
 			Vector2 offset = getPlayerPos().cpy().add(0, TILE_SIZE + 4);
 			pickedBoxPostion = offset;
-			pickedBox.body.setTransform(offset, 0);
+			pickedBox.body.setTransform(toBox2d(offset), 0);
 		}
 		if (thrownBox != null) {
 			if (throwCooldown < 0) {
 				thrownBox = null;
 			} else {
 				thrownMove = thrownMove.scl(THROW_FRICTION);
-				Vector2 pos = thrownBox.body.getPosition().cpy().add(thrownMove);
-				thrownBox.body.setTransform(pos.x, pos.y, 0);
+				Vector2 pos = fromBox2d(thrownBox.body.getPosition().cpy()).add(thrownMove);
+				thrownBox.body.setTransform(toBox2d(pos.x), toBox2d(pos.y), 0);
+			}
+		}
+		for (Enemy enemy : enemies) {
+			if (!(pickedBox != null && enemy.box == pickedBox)) {
+				bounceOffEdge(enemy);
+				enemy.update();
+			} else {
+				Vector2 offset = getPlayerPos().cpy().add(0, TILE_SIZE + 4);
+				enemy.position = offset.cpy();
 			}
 		}
 
@@ -224,7 +256,7 @@ public class TestGame extends ApplicationAdapter {
 			Iterator<MyBox> iter = boxes.listIterator();
 			while (iter.hasNext()) {
 				MyBox thisBox = iter.next();
-				Vector2 boxPos = thisBox.body.getPosition();
+				Vector2 boxPos = fromBox2d(thisBox.body.getPosition());
 				Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
 
 
@@ -234,6 +266,39 @@ public class TestGame extends ApplicationAdapter {
 					score = score + 1;
 				}
 			}
+
+			Iterator<Enemy> iter2 = enemies.listIterator();
+			while (iter2.hasNext()) {
+				Enemy enemy = iter2.next();
+				if (enemy.airCooldown > 0) {
+					MyBox thisBox = enemy.box;
+					Vector2 boxPos = fromBox2d(thisBox.body.getPosition());
+					Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
+
+					if (boxRect.overlaps(target.rect) && target.type.equals(thisBox.type)) {
+						iter2.remove();
+						world.destroyBody(thisBox.body);
+						score = score + 1;
+					}
+				}
+			}
+		}
+	}
+
+	public void bounceOffEdge(Enemy enemy) {
+		Vector2 pos = enemy.getPos();
+		Vector2 mov = enemy.movement;
+		if (pos.x < WORLD_BUFFER) {
+			mov.x = mov.x * -1;
+		}
+		if (pos.x > WORLD_WIDTH - WORLD_BUFFER) {
+			mov.x = mov.x * -1;
+		}
+		if (pos.y < WORLD_BUFFER) {
+			mov.y = mov.y * -1;
+		}
+		if (pos.y > WORLD_HEIGHT - WORLD_BUFFER) {
+			mov.y = mov.y * -1;
 		}
 	}
 
@@ -257,7 +322,7 @@ public class TestGame extends ApplicationAdapter {
 	// PLAYER
 
 	private void setPlayerPos(Vector2 pos) {
-		playerBody.setTransform(pos.cpy(), 0);
+		playerBody.setTransform(toBox2d(pos.cpy()), 0);
 	}
 
 	private void setPlayerPos(float x, float y) {
@@ -265,7 +330,7 @@ public class TestGame extends ApplicationAdapter {
 	}
 
 	private Vector2 getPlayerPos() {
-		return playerBody.getPosition().cpy();
+		return fromBox2d(playerBody.getPosition().cpy());
 	}
 
 	private Vector2 getDrawPlayerPos() {
@@ -282,29 +347,29 @@ public class TestGame extends ApplicationAdapter {
 		boolean isUpPressed = Gdx.input.isKeyPressed(Input.Keys.UP);
 		boolean isDownPressed = Gdx.input.isKeyPressed(Input.Keys.DOWN);
 
-		Vector2 pos = playerBody.getPosition();
+		Vector2 pos = fromBox2d(playerBody.getPosition());
 		inputVector.x = 0;
 		inputVector.y = 0;
 
 		if (isLeftPressed) {
 			inputVector.x = inputVector.x - 1;
 			lastDirection = inputVector.cpy();
-			playerBody.applyLinearImpulse(-actualSpeed, 0, pos.x, pos.y, true);
+			playerBody.applyLinearImpulse(toBox2d(-actualSpeed), 0, toBox2d(pos.x), toBox2d(pos.y), true);
 		}
 		if (isRightPressed) {
 			inputVector.x = inputVector.x + 1;
 			lastDirection = inputVector.cpy();
-			playerBody.applyLinearImpulse(actualSpeed, 0, pos.x, pos.y, true);
+			playerBody.applyLinearImpulse(toBox2d(actualSpeed), 0, toBox2d(pos.x), toBox2d(pos.y), true);
 		}
 		if (isUpPressed) {
 			inputVector.y = inputVector.y + 1;
 			lastDirection = inputVector.cpy();
-			playerBody.applyLinearImpulse(0, actualSpeed, pos.x, pos.y, true);
+			playerBody.applyLinearImpulse(0, toBox2d(actualSpeed), toBox2d(pos.x), toBox2d(pos.y), true);
 		}
 		if (isDownPressed) {
 			inputVector.y = inputVector.y - 1;
 			lastDirection = inputVector.cpy();
-			playerBody.applyLinearImpulse(0, -actualSpeed, pos.x, pos.y, true);
+			playerBody.applyLinearImpulse(0, toBox2d(-actualSpeed), toBox2d(pos.x), toBox2d(pos.y), true);
 		}
 		if (!isLeftPressed && !isRightPressed && !isDownPressed && !isUpPressed) {
 			playerBody.setLinearVelocity(0,0);
@@ -329,13 +394,11 @@ public class TestGame extends ApplicationAdapter {
 				pos.add(lastDirection.x * TILE_SIZE, lastDirection.y * TILE_SIZE);
 				Rectangle pickupArea = new Rectangle(pos.x, pos.y, pickupAreaSize.x, pickupAreaSize.y);
 				pickupPos = pos.cpy();
-
-				for (MyBox box : boxes) {
-					Vector2 boxPos = box.body.getPosition();
-					Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
-					if (boxRect.overlaps(pickupArea)) {
-						pickedBox = box;
-					}
+				checkPick(pickupArea);
+				if (pickedBox == null) {
+					pos = getPlayerPos().cpy().sub(HALF_SIZE, HALF_SIZE);
+					pickupArea = new Rectangle(pos.x, pos.y, 2 * TILE_SIZE, 2 * TILE_SIZE);
+					checkPick(pickupArea);
 				}
 			}
 		} else {
@@ -347,9 +410,34 @@ public class TestGame extends ApplicationAdapter {
 		}
 	}
 
+	public void checkPick(Rectangle pickupArea) {
+		for (MyBox box : boxes) {
+			Vector2 boxPos = fromBox2d(box.body.getPosition());
+			Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
+			if (boxRect.overlaps(pickupArea)) {
+				pickedBox = box;
+			}
+		}
+		for (Enemy enemy : enemies) {
+			MyBox box = enemy.box;
+			Vector2 boxPos = fromBox2d(box.body.getPosition());
+			Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
+			if (boxRect.overlaps(pickupArea)) {
+				pickedBox = box;
+			}
+		}
+	}
+
 	public void throwCurrentBox(Vector2 pos, Vector2 amount) {
 		if (pickedBox != null) {
-			pickedBox.body.setTransform(pos.x, pos.y, 0);
+			for (Enemy enemy : enemies) {
+				if (enemy.box.equals(pickedBox)) {
+					enemy.movement = amount.cpy();
+					enemy.position = pos.cpy();
+					enemy.airCooldown = AIR_COOLDOWN;
+				}
+			}
+			pickedBox.body.setTransform(toBox2d(pos.x), toBox2d(pos.y), 0);
 			pickedBoxPostion = null;
 			thrownBox = pickedBox;
 			thrownMove = amount;
@@ -381,6 +469,22 @@ public class TestGame extends ApplicationAdapter {
 		Vector2 pos = getRandomEdge();
 		Rectangle rect = new Rectangle(pos.x, pos.y, TILE_SIZE, TILE_SIZE);
 		targets.add(new Target(rect, type));
+	}
+
+	public static float toBox2d(float realWorld) {
+		return realWorld * TO_BOX2D;
+	}
+
+	public static Vector2 toBox2d(Vector2 realWorld) {
+		return realWorld.scl(TO_BOX2D);
+	}
+
+	public static float fromBox2d(float box2dWorld) {
+		return box2dWorld * FROM_BOX2D;
+	}
+
+	public static Vector2 fromBox2d(Vector2 box2dWorld) {
+		return box2dWorld.scl(FROM_BOX2D);
 	}
 
 }
