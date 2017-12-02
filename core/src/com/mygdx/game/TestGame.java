@@ -9,10 +9,13 @@ import java.util.List;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Matrix4;
 import com.badlogic.gdx.math.Rectangle;
@@ -27,8 +30,10 @@ public class TestGame extends ApplicationAdapter {
 	SpriteBatch batch;
 	Texture img, boxImage, targetImage, potTargetImage, dogImage, potatoImage, runningDogImage;
 
-	public static final int WORLD_WIDTH = 480;
-	public static final int WORLD_HEIGHT = 360;
+	public static final int WORLD_WIDTH = 360; // 480
+	public static final int WORLD_HEIGHT = 240; // 360
+	public static final int WORLD_BUFFER = 8;
+	public static final int TARGET_WORLD_BUFFER = 24;
 	private static final float PLAYER_SPEED = 5f;
 	private static final float PICKUP_START_COOLDOWN = 0.2f;
 	public static final float AIR_COOLDOWN = 0.5f;
@@ -72,8 +77,12 @@ public class TestGame extends ApplicationAdapter {
 	int numBoxes = 0;
 	int numEnemies = 0;
 	int score = 0;
-	public static final int WORLD_BUFFER = 16;
-	public static final int TARGET_WORLD_BUFFER = 24;
+	int scoreTarget = 0;
+	float levelCountdown = 0;
+	LevelState levelState;
+
+	private BitmapFont font;
+
 
 	List<MyBox> boxes = new ArrayList<MyBox>();
 	List<Enemy> enemies = new ArrayList<Enemy>();
@@ -100,11 +109,21 @@ public class TestGame extends ApplicationAdapter {
 		dogImage = new Texture("dog.png");
 		runningDogImage = new Texture("runningDog.png");
 
+		// fonts
+		loadFonts();
+
 		// start game
-		numBoxes = 7;
-		numEnemies = 2;
-		score = 0;
-		resetLevel();
+
+		resetGame();
+	}
+
+	private void loadFonts() {
+		FileHandle handle = Gdx.files.internal("roboto-regular.ttf");
+		FreeTypeFontGenerator generator = new FreeTypeFontGenerator(handle);
+		FreeTypeFontGenerator.FreeTypeFontParameter parameter = new FreeTypeFontGenerator.FreeTypeFontParameter();
+		parameter.size = 20;
+		font = generator.generateFont(parameter);
+		font.setUseIntegerPositions(false);
 	}
 
 	public void resize (int width, int height) {
@@ -116,7 +135,7 @@ public class TestGame extends ApplicationAdapter {
 		cameraPosition.y = WORLD_HEIGHT / 2.0f;
 		camera.position.set(cameraPosition);
 		camera.update();
-		debugMatrix = new Matrix4(camera.combined);
+		debugMatrix = new Matrix4(camera.combined.cpy().scl(FROM_BOX2D));
 		debugRenderer = new Box2DDebugRenderer();
 		batch.setProjectionMatrix(camera.combined);
 	}
@@ -168,11 +187,31 @@ public class TestGame extends ApplicationAdapter {
 			}
 		}
 
+		font.draw(batch, "" + score + "/" + scoreTarget, 20.0f, 220.0f);
+		font.draw(batch, "" + (int)levelCountdown + "s", 300.0f, 220.0f);
+
+		if (levelState == LevelState.OVER) {
+			if (score >= scoreTarget) {
+				font.draw(batch, "YOU DID IT!", 120.0f, 150.0f);
+			} else {
+				font.draw(batch, "TOO MUCH PRESSURE", 100.0f, 150.0f);
+			}
+		}
 
 		//batch.draw(boxImage, pickupPos.x, pickupPos.y);
 
 		batch.end();
-		//debugRenderer.render(world, new Matrix4(camera.combined));
+		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
+	}
+
+	public void resetGame() {
+		numBoxes = 2;
+		numEnemies = 1;
+		scoreTarget = 10;
+		score = 0;
+		levelCountdown = 30f;
+		levelState = LevelState.PLAYING;
+		resetLevel();
 	}
 
 	public void resetLevel() {
@@ -219,6 +258,10 @@ public class TestGame extends ApplicationAdapter {
 	// UPDATE
 
 	public void update() {
+		levelCountdown = levelCountdown - Gdx.graphics.getDeltaTime();
+		if (levelCountdown < 0) {
+			levelState = LevelState.OVER;
+		}
 		setPlayerPos(worldConstrainedPosition(getPlayerPos()));
 		for (MyBox box : boxes) {
 			box.body.setTransform(
@@ -271,13 +314,11 @@ public class TestGame extends ApplicationAdapter {
 			while (iter2.hasNext()) {
 				Enemy enemy = iter2.next();
 				if (enemy.airCooldown > 0) {
-					MyBox thisBox = enemy.box;
-					Vector2 boxPos = fromBox2d(thisBox.body.getPosition());
+					Vector2 boxPos = fromBox2d(enemy.box.body.getPosition());
 					Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
-
-					if (boxRect.overlaps(target.rect) && target.type.equals(thisBox.type)) {
+					if (boxRect.overlaps(target.rect) && target.type.equals(enemy.box.type)) {
+						world.destroyBody(enemy.box.body);
 						iter2.remove();
-						world.destroyBody(thisBox.body);
 						score = score + 1;
 					}
 				}
@@ -371,9 +412,9 @@ public class TestGame extends ApplicationAdapter {
 			lastDirection = inputVector.cpy();
 			playerBody.applyLinearImpulse(0, toBox2d(-actualSpeed), toBox2d(pos.x), toBox2d(pos.y), true);
 		}
-		if (!isLeftPressed && !isRightPressed && !isDownPressed && !isUpPressed) {
-			playerBody.setLinearVelocity(0,0);
-		}
+//		if (!isLeftPressed && !isRightPressed && !isDownPressed && !isUpPressed) {
+//			playerBody.setLinearVelocity(0,0);
+//		}
 
 		if (Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
 			pickupOrThrow();
