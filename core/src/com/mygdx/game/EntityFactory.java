@@ -29,7 +29,7 @@ public class EntityFactory {
         body.setLinearDamping(1.0f);
 
         CircleShape shape = new CircleShape();
-        shape.setRadius(HALF_SIZE);
+        shape.setRadius(4);
 
         FixtureDef fixtureDef = new FixtureDef();
         fixtureDef.shape = shape;
@@ -45,7 +45,7 @@ public class EntityFactory {
         return playerBody;
     }
 
-    public Body createBox(World world, Vector2 position) {
+    public MyBox createBox(World world, Vector2 position, Food type) {
         Body playerBody;
         BodyDef bodyDef = new BodyDef();
         bodyDef.type = BodyDef.BodyType.DynamicBody;
@@ -78,6 +78,6 @@ public class EntityFactory {
 
         shape.dispose();
 
-        return playerBody;
+        return new MyBox(playerBody, type);
     }
 }

@@ -23,8 +23,9 @@ import com.badlogic.gdx.physics.box2d.Box2DDebugRenderer;
 import com.badlogic.gdx.physics.box2d.World;
 
 public class TestGame extends ApplicationAdapter {
+
 	SpriteBatch batch;
-	Texture img, boxImage, targetImage;
+	Texture img, boxImage, targetImage, potTargetImage, dogImage, potatoImage;
 
 	public static final int WORLD_WIDTH = 480;
 	public static final int WORLD_HEIGHT = 360;
@@ -36,7 +37,10 @@ public class TestGame extends ApplicationAdapter {
 	public static final float LIGHT_DENSITY = 0.001f;
 	public static final float HEAVY_DENSITY = 0.1f;
 
-	private static final float BOX_FORCE = 6.0f;
+	private static final float BOX_FORCE = 4.0f;
+	public static final float THROW_FRICTION = 0.94f;
+
+	public static final float METRE = 16;
 
 	private float screenWidth;
 	private float screenHeight;
@@ -53,8 +57,8 @@ public class TestGame extends ApplicationAdapter {
 	Vector2 thrownMove;
 	EntityFactory entityFactory;
 
-	Body pickedBox;
-	Body thrownBox;
+	MyBox pickedBox;
+	MyBox thrownBox;
 
 	List<Target> targets;
 
@@ -66,7 +70,7 @@ public class TestGame extends ApplicationAdapter {
 	public static final int WORLD_BUFFER = 16;
 	public static final int TARGET_WORLD_BUFFER = 24;
 
-	List<Body> boxes = new ArrayList<Body>();
+	List<MyBox> boxes = new ArrayList<MyBox>();
 
 	@Override
 	public void create () {
@@ -85,6 +89,9 @@ public class TestGame extends ApplicationAdapter {
 		img = new Texture("player.png");
 		boxImage = new Texture("box.png");
 		targetImage = new Texture("target.png");
+		potTargetImage = new Texture("potTarget.png");
+		potatoImage = new Texture("potato.png");
+		dogImage = new Texture("dog.png");
 
 		// start game
 		numBoxes = 5;
@@ -128,12 +135,22 @@ public class TestGame extends ApplicationAdapter {
 		batch.draw(img, pos.x, pos.y);
 
 		for (Target target : targets) {
-			batch.draw(targetImage, target.rect.x, target.rect.y);
+			if (target.type.equals(Food.DOG)) {
+				batch.draw(potTargetImage, target.rect.x, target.rect.y);
+			}
+			if (target.type.equals(Food.POTATO)) {
+				batch.draw(targetImage, target.rect.x, target.rect.y);
+			}
 		}
 
-		for (Body box : boxes) {
-			Vector2 boxPos = box.getPosition();
-			batch.draw(boxImage, boxPos.x, boxPos.y);
+		for (MyBox box : boxes) {
+			Vector2 boxPos = box.body.getPosition();
+			if (box.type.equals(Food.POTATO)) {
+				batch.draw(potatoImage, boxPos.x, boxPos.y);
+			}
+			if (box.type.equals(Food.DOG)) {
+				batch.draw(dogImage, boxPos.x, boxPos.y);
+			}
 		}
 
 
@@ -151,20 +168,24 @@ public class TestGame extends ApplicationAdapter {
 		pickupPos = new Vector2();
 		thrownMove = new Vector2();
 		playerBody = entityFactory.createPlayer(world);
-		boxes = new ArrayList<Body>();
+		boxes = new ArrayList<MyBox>();
 		targets = new ArrayList<Target>();
 		pickupAreaSize = new Vector2(TILE_SIZE, TILE_SIZE);
 		pickupCooldown = 0;
 		throwCooldown = 0;
 		pickedBox = null;
 		thrownBox = null;
+		List<Food> types = new ArrayList<Food>();
+		types.add(Food.DOG);
+		types.add(Food.POTATO);
 		for (int i = 0; i < numBoxes; i++) {
 			Vector2 randPos = new Vector2(
 					random(WORLD_BUFFER,WORLD_WIDTH - WORLD_BUFFER),
 					random(WORLD_BUFFER, WORLD_HEIGHT - WORLD_BUFFER));
-			boxes.add(entityFactory.createBox(world, randPos));
+			boxes.add(entityFactory.createBox(world, randPos, types.get(MathUtils.random(0, 1))));
 		}
-		addTarget();
+		addTarget(Food.DOG);
+		addTarget(Food.POTATO);
 	}
 	
 	@Override
@@ -178,38 +199,38 @@ public class TestGame extends ApplicationAdapter {
 
 	public void update() {
 		setPlayerPos(worldConstrainedPosition(getPlayerPos()));
-		for (Body box : boxes) {
-			box.setTransform(worldConstrainedPosition(box.getPosition().cpy()), 0);
+		for (MyBox box : boxes) {
+			box.body.setTransform(worldConstrainedPosition(box.body.getPosition().cpy()), 0);
 		}
 		pickupCooldown = pickupCooldown - Gdx.graphics.getDeltaTime();
 		throwCooldown = throwCooldown - Gdx.graphics.getDeltaTime();
 		if (pickedBox != null) {
 			Vector2 offset = getPlayerPos().cpy().add(0, TILE_SIZE + 4);
 			pickedBoxPostion = offset;
-			pickedBox.setTransform(offset, 0);
+			pickedBox.body.setTransform(offset, 0);
 		}
 		if (thrownBox != null) {
 			if (throwCooldown < 0) {
 				thrownBox = null;
 			} else {
-				thrownMove = thrownMove.scl(0.9f);
-				Vector2 pos = thrownBox.getPosition().cpy().add(thrownMove);
-				thrownBox.setTransform(pos.x, pos.y, 0);
+				thrownMove = thrownMove.scl(THROW_FRICTION);
+				Vector2 pos = thrownBox.body.getPosition().cpy().add(thrownMove);
+				thrownBox.body.setTransform(pos.x, pos.y, 0);
 			}
 		}
 
 		for (Target target : targets) {
 
-			Iterator<Body> iter = boxes.listIterator();
+			Iterator<MyBox> iter = boxes.listIterator();
 			while (iter.hasNext()) {
-				Body thisBox = iter.next();
-				Vector2 boxPos = thisBox.getPosition();
+				MyBox thisBox = iter.next();
+				Vector2 boxPos = thisBox.body.getPosition();
 				Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
 
-				// TODO ALSO CHECK IF TYPE IS CORRECT
-				if (boxRect.overlaps(target.rect)) {
+
+				if (boxRect.overlaps(target.rect) && target.type.equals(thisBox.type)) {
 					iter.remove();
-					world.destroyBody(thisBox);
+					world.destroyBody(thisBox.body);
 					score = score + 1;
 				}
 			}
@@ -309,8 +330,8 @@ public class TestGame extends ApplicationAdapter {
 				Rectangle pickupArea = new Rectangle(pos.x, pos.y, pickupAreaSize.x, pickupAreaSize.y);
 				pickupPos = pos.cpy();
 
-				for (Body box : boxes) {
-					Vector2 boxPos = box.getPosition();
+				for (MyBox box : boxes) {
+					Vector2 boxPos = box.body.getPosition();
 					Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
 					if (boxRect.overlaps(pickupArea)) {
 						pickedBox = box;
@@ -328,7 +349,7 @@ public class TestGame extends ApplicationAdapter {
 
 	public void throwCurrentBox(Vector2 pos, Vector2 amount) {
 		if (pickedBox != null) {
-			pickedBox.setTransform(pos.x, pos.y, 0);
+			pickedBox.body.setTransform(pos.x, pos.y, 0);
 			pickedBoxPostion = null;
 			thrownBox = pickedBox;
 			thrownMove = amount;
@@ -356,10 +377,10 @@ public class TestGame extends ApplicationAdapter {
 		return pos;
 	}
 
-	public void addTarget() {
+	public void addTarget(Food type) {
 		Vector2 pos = getRandomEdge();
 		Rectangle rect = new Rectangle(pos.x, pos.y, TILE_SIZE, TILE_SIZE);
-		targets.add(new Target(rect, "potato"));
+		targets.add(new Target(rect, type));
 	}
 
 }
