@@ -101,8 +101,8 @@ public class TestGame extends ApplicationAdapter {
 		runningDogImage = new Texture("runningDog.png");
 
 		// start game
-		numBoxes = 3;
-		numEnemies = 1;
+		numBoxes = 7;
+		numEnemies = 2;
 		score = 0;
 		resetLevel();
 	}
