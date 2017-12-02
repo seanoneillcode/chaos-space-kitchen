@@ -43,6 +43,7 @@ public class EntityFactory {
         Fixture fixture = body.createFixture(fixtureDef);
 
         playerBody = body;
+        playerBody.setUserData(MathUtils.random());
 
         shape.dispose();
 

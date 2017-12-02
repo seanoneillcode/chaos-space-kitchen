@@ -86,11 +86,11 @@ public class TestGame extends ApplicationAdapter {
 
 	private BitmapFont font;
 
-	private Vector2 cameraPos;
-
 	List<MyBox> boxes = new ArrayList<MyBox>();
 	List<Enemy> enemies = new ArrayList<Enemy>();
 	List<LevelData> levelDatas = new ArrayList<LevelData>();
+	List<Body> deadBodies = new ArrayList<Body>();
+
 
 	@Override
 	public void create () {
@@ -165,6 +165,13 @@ public class TestGame extends ApplicationAdapter {
 		handleInput();
 		update();
 
+		if (!world.isLocked()) {
+			for (Body deadBody : deadBodies) {
+				world.destroyBody(deadBody);
+			}
+			deadBodies.clear();
+		}
+
 		world.step(Gdx.graphics.getDeltaTime(), 6, 2);
 		playerBody.setAwake(true);
 
@@ -232,7 +239,7 @@ public class TestGame extends ApplicationAdapter {
 
 		batch.end();
 
-//		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
+		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
 	}
 
 	private Vector3 getLerpCamera() {
@@ -254,18 +261,19 @@ public class TestGame extends ApplicationAdapter {
 		loadNextLevel();
 	}
 
-	public void loadNextLevel() {
+	public void clearLevel() {
 		for (MyBox box : boxes) {
-			world.destroyBody(box.body);
+			deadBodies.add(box.body);
 		}
-		boxes.clear();
+		boxes = new ArrayList<MyBox>();
 		for (Enemy enemy : enemies) {
-			world.destroyBody(enemy.box.body);
+			deadBodies.add(enemy.box.body);
 		}
-		enemies.clear();
-		if (playerBody != null) {
-			world.destroyBody(playerBody);
-		}
+		enemies = new ArrayList<Enemy>();
+	}
+
+	public void loadNextLevel() {
+		clearLevel();
 		if (currentLevel < levelDatas.size()) {
 			LevelData levelData = levelDatas.get(currentLevel);
 			numBoxes = levelData.numBoxes;
@@ -276,9 +284,6 @@ public class TestGame extends ApplicationAdapter {
 			levelState = LevelState.PLAYING;
 			resetLevel();
 			currentLevel++;
-		} else {
-			// TODO YOU ARE WINRAR
-			levelState = LevelState.WON;
 		}
 	}
 
@@ -287,7 +292,12 @@ public class TestGame extends ApplicationAdapter {
 		inputVector = new Vector2();
 		pickupPos = new Vector2();
 		thrownMove = new Vector2();
-		playerBody = entityFactory.createPlayer(world);
+		if (playerBody == null) {
+			playerBody = entityFactory.createPlayer(world);
+		} else {
+			playerBody.setTransform(new Vector2(toBox2d(WORLD_WIDTH / 2.0f), toBox2d(WORLD_HEIGHT / 2.0f)), 0);
+			playerBody.setLinearVelocity(0,0);
+		}
 		boxes = new ArrayList<MyBox>();
 		enemies = new ArrayList<Enemy>();
 		targets = new ArrayList<Target>();
@@ -384,8 +394,8 @@ public class TestGame extends ApplicationAdapter {
 
 
 				if (boxRect.overlaps(target.rect) && target.type.equals(thisBox.type)) {
-					iter.remove();
 					world.destroyBody(thisBox.body);
+					iter.remove();
 					score = score + 1;
 				}
 			}
@@ -408,11 +418,16 @@ public class TestGame extends ApplicationAdapter {
 	}
 
 	public void finishLevel() {
+		clearLevel();
 		if (score < scoreTarget) {
 			levelState = LevelState.OVER;
 		} else {
-			nextLevelCountdown = NEXT_LEVEL_TIMER;
-			levelState = LevelState.NEXT;
+			if (currentLevel < levelDatas.size()) {
+				nextLevelCountdown = NEXT_LEVEL_TIMER;
+				levelState = LevelState.NEXT;
+			} else {
+				levelState = LevelState.WON;
+			}
 		}
 	}
 
