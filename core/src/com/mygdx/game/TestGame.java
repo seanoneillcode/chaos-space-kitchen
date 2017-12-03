@@ -3,8 +3,11 @@ package com.mygdx.game;
 import static com.badlogic.gdx.math.MathUtils.random;
 
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Map;
 
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
@@ -28,7 +31,7 @@ import com.badlogic.gdx.physics.box2d.World;
 public class TestGame extends ApplicationAdapter {
 
 	SpriteBatch batch;
-	Texture img, boxImage, targetImage, potTargetImage, dogImage, potatoImage, runningDogImage, levelImage;
+	Texture img, runningDogImage, levelImage;
 
 	public static final int WORLD_WIDTH = 360; // 480
 	public static final int WORLD_HEIGHT = 240; // 360
@@ -76,6 +79,7 @@ public class TestGame extends ApplicationAdapter {
 	float throwCooldown;
 
 	int numBoxes = 0;
+	List<Food> levelFood;
 	int numEnemies = 0;
 	int score = 0;
 	int scoreTarget = 0;
@@ -90,6 +94,9 @@ public class TestGame extends ApplicationAdapter {
 	List<Enemy> enemies = new ArrayList<Enemy>();
 	List<LevelData> levelDatas = new ArrayList<LevelData>();
 	List<Body> deadBodies = new ArrayList<Body>();
+
+	Map<Food, Texture> targetImages = new HashMap<Food, Texture>();
+	Map<Food, Texture> boxImages = new HashMap<Food, Texture>();
 
 
 	@Override
@@ -107,27 +114,31 @@ public class TestGame extends ApplicationAdapter {
 
 		// images
 		img = new Texture("player.png");
-		boxImage = new Texture("box.png");
-		targetImage = new Texture("target.png");
-		potTargetImage = new Texture("potTarget.png");
-		potatoImage = new Texture("potato.png");
-		dogImage = new Texture("dog.png");
 		runningDogImage = new Texture("runningDog.png");
 		levelImage = new Texture("level-01.png");
+
+		targetImages.put(Food.GREEN, new Texture("pot-target.png"));
+		targetImages.put(Food.RED, new Texture("oven-target.png"));
+		targetImages.put(Food.BLUE, new Texture("grill-target.png"));
+		targetImages.put(Food.PURPLE, new Texture("lazer-target.png"));
+
+		boxImages.put(Food.GREEN, new Texture("mushroom.png"));
+		boxImages.put(Food.RED, new Texture("brain.png"));
+		boxImages.put(Food.BLUE, new Texture("fish.png"));
 
 		// fonts
 		loadFonts();
 
 		// build levels
-		levelDatas.add(new LevelData(0, 4, 3, 10));
-		levelDatas.add(new LevelData(1, 4, 4, 11));
-//		levelDatas.add(new LevelData(3, 3, 5, 12));
-//		levelDatas.add(new LevelData(2, 6, 6, 13));
-//		levelDatas.add(new LevelData(4, 6, 7, 14));
-//		levelDatas.add(new LevelData(4, 7, 8, 15));
-//		levelDatas.add(new LevelData(8, 0, 8, 20));
-//		levelDatas.add(new LevelData(6, 8, 10, 25));
-//		levelDatas.add(new LevelData(4, 12, 12, 30));
+		levelDatas.add(new LevelData(0, 4, 3, 10, Arrays.asList(Food.GREEN)));
+		levelDatas.add(new LevelData(1, 4, 4, 11, Arrays.asList(Food.GREEN, Food.RED)));
+		levelDatas.add(new LevelData(3, 3, 5, 12, Arrays.asList(Food.RED, Food.BLUE)));
+		levelDatas.add(new LevelData(2, 6, 6, 13, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
+		levelDatas.add(new LevelData(4, 6, 7, 14, Arrays.asList(Food.GREEN, Food.BLUE)));
+		levelDatas.add(new LevelData(4, 7, 8, 15, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
+		levelDatas.add(new LevelData(8, 0, 8, 20, Arrays.asList(Food.RED)));
+		levelDatas.add(new LevelData(6, 8, 10, 25, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
+		levelDatas.add(new LevelData(4, 12, 12, 30, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
 
 		// start game
 		resetGame();
@@ -187,29 +198,19 @@ public class TestGame extends ApplicationAdapter {
 		Vector2 pos = getDrawPlayerPos();
 
 		for (Target target : targets) {
-			if (target.type.equals(Food.DOG)) {
-				batch.draw(potTargetImage, target.rect.x, target.rect.y);
-			}
-			if (target.type.equals(Food.POTATO)) {
-				batch.draw(targetImage, target.rect.x, target.rect.y);
-			}
+			Texture texture = targetImages.get(target.type);
+			batch.draw(texture, target.rect.x, target.rect.y);
 		}
 
 		for (MyBox box : boxes) {
 			Vector2 boxPos = fromBox2d(box.body.getPosition());
-			if (box.type.equals(Food.POTATO)) {
-				batch.draw(potatoImage, boxPos.x, boxPos.y);
-			}
-			if (box.type.equals(Food.DOG)) {
-				batch.draw(dogImage, boxPos.x, boxPos.y);
-			}
+			Texture boxTex = boxImages.get(box.type);
+			batch.draw(boxTex, boxPos.x, boxPos.y);
 		}
 
 		for (Enemy enemy : enemies) {
-			if (enemy.box.type.equals(Food.DOG)) {
-				Vector2 enemyPos = enemy.getPos();
-				batch.draw(runningDogImage, enemyPos.x, enemyPos.y);
-			}
+			Vector2 enemyPos = enemy.getPos();
+			batch.draw(runningDogImage, enemyPos.x, enemyPos.y);
 		}
 
 		// draw player
@@ -239,7 +240,7 @@ public class TestGame extends ApplicationAdapter {
 
 		batch.end();
 
-		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
+//		debugRenderer.render(world, new Matrix4(camera.combined.cpy().scl(FROM_BOX2D)));
 	}
 
 	private Vector3 getLerpCamera() {
@@ -281,6 +282,7 @@ public class TestGame extends ApplicationAdapter {
 			scoreTarget = levelData.scoreTarget;
 			score = 0;
 			levelCountdown = levelData.levelCountdown;
+			levelFood = levelData.levelFood;
 			levelState = LevelState.PLAYING;
 			resetLevel();
 			currentLevel++;
@@ -306,24 +308,27 @@ public class TestGame extends ApplicationAdapter {
 		throwCooldown = 0;
 		pickedBox = null;
 		thrownBox = null;
-		List<Food> types = new ArrayList<Food>();
-		types.add(Food.DOG);
-		types.add(Food.POTATO);
+
 		for (int i = 0; i < numBoxes; i++) {
 			Vector2 randPos = new Vector2(
 					random(WORLD_BUFFER,WORLD_WIDTH - WORLD_BUFFER),
 					random(WORLD_BUFFER, WORLD_HEIGHT - WORLD_BUFFER));
-			boxes.add(entityFactory.createBox(world, randPos, types.get(MathUtils.random(0, 1))));
+			boxes.add(entityFactory.createBox(world, randPos, getRandomFood(levelFood)));
 		}
 		for (int j = 0; j < numEnemies; j++) {
 			Vector2 randPos = new Vector2(
 					random(WORLD_BUFFER,WORLD_WIDTH - WORLD_BUFFER),
 					random(WORLD_BUFFER, WORLD_HEIGHT - WORLD_BUFFER));
 
-			enemies.add(entityFactory.createEnemy(world, randPos, Food.DOG));
+			enemies.add(entityFactory.createEnemy(world, randPos, Food.RED));
 		}
-		addTarget(Food.DOG);
-		addTarget(Food.POTATO);
+		for (Food food : levelFood) {
+			addTarget(food);
+		}
+	}
+
+	private Food getRandomFood(List<Food> foods) {
+		return foods.get(MathUtils.random(0, foods.size() - 1));
 	}
 	
 	@Override
@@ -393,7 +398,7 @@ public class TestGame extends ApplicationAdapter {
 				Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
 
 
-				if (boxRect.overlaps(target.rect) && target.type.equals(thisBox.type)) {
+				if (boxRect.overlaps(target.rect) && target.type.equals(thisBox.type) && pickedBox == null) {
 					world.destroyBody(thisBox.body);
 					iter.remove();
 					score = score + 1;
@@ -488,10 +493,10 @@ public class TestGame extends ApplicationAdapter {
 	public void handleInput() {
 
 		float actualSpeed = PLAYER_SPEED * Gdx.graphics.getDeltaTime();
-		boolean isLeftPressed = Gdx.input.isKeyPressed(Input.Keys.LEFT);
-		boolean isRightPressed = Gdx.input.isKeyPressed(Input.Keys.RIGHT);
-		boolean isUpPressed = Gdx.input.isKeyPressed(Input.Keys.UP);
-		boolean isDownPressed = Gdx.input.isKeyPressed(Input.Keys.DOWN);
+		boolean isLeftPressed = Gdx.input.isKeyPressed(Input.Keys.LEFT) || Gdx.input.isKeyPressed(Input.Keys.A);
+		boolean isRightPressed = Gdx.input.isKeyPressed(Input.Keys.RIGHT) || Gdx.input.isKeyPressed(Input.Keys.D);
+		boolean isUpPressed = Gdx.input.isKeyPressed(Input.Keys.UP) || Gdx.input.isKeyPressed(Input.Keys.W);
+		boolean isDownPressed = Gdx.input.isKeyPressed(Input.Keys.DOWN) || Gdx.input.isKeyPressed(Input.Keys.S);
 
 		Vector2 pos = fromBox2d(playerBody.getPosition());
 		inputVector.x = 0;

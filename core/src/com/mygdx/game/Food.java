@@ -1,6 +1,8 @@
 package com.mygdx.game;
 
 public enum Food {
-    DOG,
-    POTATO
+    GREEN,
+    RED,
+    BLUE,
+    PURPLE
 }
