@@ -37,7 +37,7 @@ public class TestGame extends ApplicationAdapter {
 	private static final float MAX_RANDOM_BOX_TIME = 5.0f;
 	private static final float MIN_RANDOM_BOX_TIME = 2.0f;
 	SpriteBatch batch;
-	Texture img, runningDogImage, levelImage, introImage;
+	Texture levelImage, introImage;
 
 	public static final int WORLD_WIDTH = 360; // 480
 	public static final int WORLD_HEIGHT = 240; // 360
@@ -129,8 +129,6 @@ public class TestGame extends ApplicationAdapter {
 		batch = new SpriteBatch();
 
 		// images
-		img = new Texture("player.png");
-		runningDogImage = new Texture("runningDog.png");
 		levelImage = new Texture("level-01.png");
 		introImage = new Texture("intro.png");
 
@@ -147,6 +145,8 @@ public class TestGame extends ApplicationAdapter {
 		anims = new HashMap<String,Animation<TextureRegion>>();
 		anims.put("idle", loadAnimation("chef-idle.png", 2, 0.2f));
 		anims.put("run", loadAnimation("chef-run.png", 4, 0.1f));
+		anims.put("idle-hold", loadAnimation("chef-idle-hold.png", 2, 0.2f));
+		anims.put("run-hold", loadAnimation("chef-run-hold.png", 4, 0.1f));
 		anims.put("rat-run", loadAnimation("rat-run.png", 2, 0.1f));
 		anims.put("smoke-effect", loadAnimation("smoke-effect.png", 4, 0.2f));
 
@@ -279,13 +279,24 @@ public class TestGame extends ApplicationAdapter {
 			}
 
 			// draw player
-			if (isRunning) {
-				TextureRegion currentFrame = anims.get("run").getKeyFrame(animationDeltaTime, true);
-				batch.draw(currentFrame, pos.x, pos.y);
+			if (pickedBox != null) {
+				if (isRunning) {
+					TextureRegion currentFrame = anims.get("run-hold").getKeyFrame(animationDeltaTime, true);
+					batch.draw(currentFrame, pos.x, pos.y);
+				} else {
+					TextureRegion currentFrame = anims.get("idle-hold").getKeyFrame(animationDeltaTime, true);
+					batch.draw(currentFrame, pos.x, pos.y);
+				}
 			} else {
-				TextureRegion currentFrame = anims.get("idle").getKeyFrame(animationDeltaTime, true);
-				batch.draw(currentFrame, pos.x, pos.y);
+				if (isRunning) {
+					TextureRegion currentFrame = anims.get("run").getKeyFrame(animationDeltaTime, true);
+					batch.draw(currentFrame, pos.x, pos.y);
+				} else {
+					TextureRegion currentFrame = anims.get("idle").getKeyFrame(animationDeltaTime, true);
+					batch.draw(currentFrame, pos.x, pos.y);
+				}
 			}
+
 
 
 			font.draw(batch, "" + score + "/" + scoreTarget, 20.0f + offset.x, 220.0f + offset.y);
@@ -413,7 +424,6 @@ public class TestGame extends ApplicationAdapter {
 	@Override
 	public void dispose () {
 		batch.dispose();
-		img.dispose();
 	}
 
 
@@ -449,7 +459,7 @@ public class TestGame extends ApplicationAdapter {
 		}
 		setPlayerPos(worldConstrainedPosition(getPlayerPos()));
 		for (MyBox box : boxes) {
-			//box.setPosition(worldConstrainedPosition(box.getPosition()));
+			box.setPosition(worldConstrainedPosition(box.getPosition()));
 			box.update();
 		}
 		pickupCooldown = pickupCooldown - Gdx.graphics.getDeltaTime();
