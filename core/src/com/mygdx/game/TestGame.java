@@ -49,6 +49,7 @@ public class TestGame extends ApplicationAdapter {
 	public static final float LIGHT_DENSITY = 0.01f;
 	public static final float HEAVY_DENSITY = 0.04f;
 	public static final float NEXT_LEVEL_TIMER = 3.0f;
+	public static final float BOX_LERP_TIMER = 0.5f;
 
 	private static final float BOX_FORCE = 4.0f;
 	public static final float THROW_FRICTION = 0.94f;
@@ -226,13 +227,13 @@ public class TestGame extends ApplicationAdapter {
 		}
 
 		for (MyBox box : boxes) {
-			Vector2 boxPos = fromBox2d(box.body.getPosition());
+			Vector2 boxPos = box.drawPos;
 			Texture boxTex = boxImages.get(box.type);
 			batch.draw(boxTex, boxPos.x, boxPos.y);
 		}
 
 		for (Enemy enemy : enemies) {
-			Vector2 enemyPos = enemy.getPos();
+			Vector2 enemyPos = enemy.box.drawPos;
 			TextureRegion currentFrame = anims.get("rat-run").getKeyFrame(animationDeltaTime, true);
 			batch.draw(currentFrame, enemyPos.x, enemyPos.y);
 		}
@@ -390,16 +391,15 @@ public class TestGame extends ApplicationAdapter {
 		}
 		setPlayerPos(worldConstrainedPosition(getPlayerPos()));
 		for (MyBox box : boxes) {
-			box.body.setTransform(
-					toBox2d(worldConstrainedPosition(
-							fromBox2d(box.body.getPosition().cpy()))), 0);
+			//box.setPosition(worldConstrainedPosition(box.getPosition()));
+			box.update();
 		}
 		pickupCooldown = pickupCooldown - Gdx.graphics.getDeltaTime();
 		throwCooldown = throwCooldown - Gdx.graphics.getDeltaTime();
 		if (pickedBox != null) {
 			Vector2 offset = getPlayerPos().cpy().add(0, TILE_SIZE + 4);
 			pickedBoxPostion = offset;
-			pickedBox.body.setTransform(toBox2d(offset), 0);
+			pickedBox.setPosition(offset);
 		}
 		if (thrownBox != null) {
 			if (throwCooldown < 0) {
@@ -418,6 +418,7 @@ public class TestGame extends ApplicationAdapter {
 				Vector2 offset = getPlayerPos().cpy().add(0, TILE_SIZE + 4);
 				enemy.position = offset.cpy();
 			}
+			enemy.box.update();
 		}
 
 		for (Target target : targets) {
@@ -602,18 +603,22 @@ public class TestGame extends ApplicationAdapter {
 
 	public void checkPick(Rectangle pickupArea) {
 		for (MyBox box : boxes) {
-			Vector2 boxPos = fromBox2d(box.body.getPosition());
+			Vector2 boxPos = box.getPosition();
 			Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
 			if (boxRect.overlaps(pickupArea)) {
 				pickedBox = box;
+				pickedBox.drawPos = pickedBox.getPosition().cpy();
+				pickedBox.lerpTimer = BOX_LERP_TIMER;
 			}
 		}
 		for (Enemy enemy : enemies) {
 			MyBox box = enemy.box;
-			Vector2 boxPos = fromBox2d(box.body.getPosition());
+			Vector2 boxPos = box.getPosition();
 			Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
 			if (boxRect.overlaps(pickupArea)) {
 				pickedBox = box;
+				pickedBox.drawPos = pickedBox.getPosition().cpy();
+				pickedBox.lerpTimer = BOX_LERP_TIMER;
 			}
 		}
 	}
@@ -627,7 +632,9 @@ public class TestGame extends ApplicationAdapter {
 					enemy.airCooldown = AIR_COOLDOWN;
 				}
 			}
-			pickedBox.body.setTransform(toBox2d(pos.x), toBox2d(pos.y), 0);
+			pickedBox.drawPos = pickedBox.getPosition().cpy();
+			pickedBox.lerpTimer = BOX_LERP_TIMER;
+			pickedBox.setPosition(pos);
 			pickedBoxPostion = null;
 			thrownBox = pickedBox;
 			thrownMove = amount;
