@@ -16,8 +16,10 @@ import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
 import com.badlogic.gdx.graphics.Texture;
+import com.badlogic.gdx.graphics.g2d.Animation;
 import com.badlogic.gdx.graphics.g2d.BitmapFont;
 import com.badlogic.gdx.graphics.g2d.SpriteBatch;
+import com.badlogic.gdx.graphics.g2d.TextureRegion;
 import com.badlogic.gdx.graphics.g2d.freetype.FreeTypeFontGenerator;
 import com.badlogic.gdx.math.MathUtils;
 import com.badlogic.gdx.math.Matrix4;
@@ -27,6 +29,7 @@ import com.badlogic.gdx.math.Vector3;
 import com.badlogic.gdx.physics.box2d.Body;
 import com.badlogic.gdx.physics.box2d.Box2DDebugRenderer;
 import com.badlogic.gdx.physics.box2d.World;
+import com.badlogic.gdx.utils.Array;
 
 public class TestGame extends ApplicationAdapter {
 
@@ -45,7 +48,7 @@ public class TestGame extends ApplicationAdapter {
 	public static final float HALF_SIZE = 16.0f;
 	public static final float LIGHT_DENSITY = 0.01f;
 	public static final float HEAVY_DENSITY = 0.04f;
-	public static final float NEXT_LEVEL_TIMER = 4.0f;
+	public static final float NEXT_LEVEL_TIMER = 3.0f;
 
 	private static final float BOX_FORCE = 4.0f;
 	public static final float THROW_FRICTION = 0.94f;
@@ -55,6 +58,7 @@ public class TestGame extends ApplicationAdapter {
 	public static final float PLAYER_SIZE = 8;
 	public static final float ENEMY_SPEED = 3f;
 
+	private static float animationDeltaTime;
 	private float screenWidth;
 	private float screenHeight;
 	private OrthographicCamera camera;
@@ -97,7 +101,9 @@ public class TestGame extends ApplicationAdapter {
 
 	Map<Food, Texture> targetImages = new HashMap<Food, Texture>();
 	Map<Food, Texture> boxImages = new HashMap<Food, Texture>();
+	private Map<String,Animation<TextureRegion>> anims;
 
+	boolean isRunning;
 
 	@Override
 	public void create () {
@@ -126,22 +132,38 @@ public class TestGame extends ApplicationAdapter {
 		boxImages.put(Food.RED, new Texture("brain.png"));
 		boxImages.put(Food.BLUE, new Texture("fish.png"));
 
+		// animations
+		anims = new HashMap<String,Animation<TextureRegion>>();
+		anims.put("idle", loadAnimation("chef-idle.png", 2, 0.2f));
+		anims.put("run", loadAnimation("chef-run.png", 4, 0.1f));
+		anims.put("rat-run", loadAnimation("rat-run.png", 2, 0.1f));
+
 		// fonts
 		loadFonts();
 
 		// build levels
 		levelDatas.add(new LevelData(0, 4, 3, 10, Arrays.asList(Food.GREEN)));
-		levelDatas.add(new LevelData(1, 4, 4, 11, Arrays.asList(Food.GREEN, Food.RED)));
-		levelDatas.add(new LevelData(3, 3, 5, 12, Arrays.asList(Food.RED, Food.BLUE)));
-		levelDatas.add(new LevelData(2, 6, 6, 13, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
-		levelDatas.add(new LevelData(4, 6, 7, 14, Arrays.asList(Food.GREEN, Food.BLUE)));
-		levelDatas.add(new LevelData(4, 7, 8, 15, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
-		levelDatas.add(new LevelData(8, 0, 8, 20, Arrays.asList(Food.RED)));
-		levelDatas.add(new LevelData(6, 8, 10, 25, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
+		levelDatas.add(new LevelData(1, 4, 4, 12, Arrays.asList(Food.BLUE, Food.RED)));
+		levelDatas.add(new LevelData(3, 3, 5, 14, Arrays.asList(Food.RED, Food.GREEN)));
+		levelDatas.add(new LevelData(2, 6, 5, 16, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
+		levelDatas.add(new LevelData(0, 6, 5, 18, Arrays.asList(Food.GREEN, Food.BLUE)));
+		levelDatas.add(new LevelData(4, 7, 8, 20, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
+		levelDatas.add(new LevelData(8, 0, 8, 22, Arrays.asList(Food.RED)));
+		levelDatas.add(new LevelData(6, 8, 10, 24, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
 		levelDatas.add(new LevelData(4, 12, 12, 30, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
 
 		// start game
 		resetGame();
+	}
+
+	private Animation<TextureRegion> loadAnimation(String fileName, int numberOfFrames, float frameDelay) {
+		Texture sheet = new Texture(Gdx.files.internal(fileName));
+		TextureRegion[][] tmp = TextureRegion.split(sheet, sheet.getWidth() / numberOfFrames, sheet.getHeight());
+		Array<TextureRegion> frames = new Array<TextureRegion>(numberOfFrames);
+		for (int j = 0; j < numberOfFrames; j++) {
+			frames.add(tmp[0][j]);
+		}
+		return new Animation<TextureRegion>(frameDelay, frames);
 	}
 
 	private void loadFonts() {
@@ -172,6 +194,7 @@ public class TestGame extends ApplicationAdapter {
 		camera.position.set(getLerpCamera());
 		camera.update();
 		batch.setProjectionMatrix(camera.combined);
+		animationDeltaTime += Gdx.graphics.getDeltaTime();
 
 		handleInput();
 		update();
@@ -210,11 +233,19 @@ public class TestGame extends ApplicationAdapter {
 
 		for (Enemy enemy : enemies) {
 			Vector2 enemyPos = enemy.getPos();
-			batch.draw(runningDogImage, enemyPos.x, enemyPos.y);
+			TextureRegion currentFrame = anims.get("rat-run").getKeyFrame(animationDeltaTime, true);
+			batch.draw(currentFrame, enemyPos.x, enemyPos.y);
 		}
 
 		// draw player
-		batch.draw(img, pos.x, pos.y);
+		if (isRunning) {
+			TextureRegion currentFrame = anims.get("run").getKeyFrame(animationDeltaTime, true);
+			batch.draw(currentFrame, pos.x, pos.y);
+		} else {
+			TextureRegion currentFrame = anims.get("idle").getKeyFrame(animationDeltaTime, true);
+			batch.draw(currentFrame, pos.x, pos.y);
+		}
+
 
 		font.draw(batch, "" + score + "/" + scoreTarget, 20.0f + offset.x, 220.0f + offset.y);
 		if (levelState == LevelState.PLAYING) {
@@ -502,25 +533,31 @@ public class TestGame extends ApplicationAdapter {
 		inputVector.x = 0;
 		inputVector.y = 0;
 
+		isRunning = false;
+
 		if (isLeftPressed) {
 			inputVector.x = inputVector.x - 1;
 			lastDirection = inputVector.cpy();
 			playerBody.applyLinearImpulse(toBox2d(-actualSpeed), 0, toBox2d(pos.x), toBox2d(pos.y), true);
+			isRunning = true;
 		}
 		if (isRightPressed) {
 			inputVector.x = inputVector.x + 1;
 			lastDirection = inputVector.cpy();
 			playerBody.applyLinearImpulse(toBox2d(actualSpeed), 0, toBox2d(pos.x), toBox2d(pos.y), true);
+			isRunning = true;
 		}
 		if (isUpPressed) {
 			inputVector.y = inputVector.y + 1;
 			lastDirection = inputVector.cpy();
 			playerBody.applyLinearImpulse(0, toBox2d(actualSpeed), toBox2d(pos.x), toBox2d(pos.y), true);
+			isRunning = true;
 		}
 		if (isDownPressed) {
 			inputVector.y = inputVector.y - 1;
 			lastDirection = inputVector.cpy();
 			playerBody.applyLinearImpulse(0, toBox2d(-actualSpeed), toBox2d(pos.x), toBox2d(pos.y), true);
+			isRunning = true;
 		}
 //		if (!isLeftPressed && !isRightPressed && !isDownPressed && !isUpPressed) {
 //			playerBody.setLinearVelocity(0,0);
