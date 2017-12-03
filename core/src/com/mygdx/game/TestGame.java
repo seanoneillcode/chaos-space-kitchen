@@ -12,6 +12,7 @@ import java.util.Map;
 import com.badlogic.gdx.ApplicationAdapter;
 import com.badlogic.gdx.Gdx;
 import com.badlogic.gdx.Input;
+import com.badlogic.gdx.audio.Sound;
 import com.badlogic.gdx.files.FileHandle;
 import com.badlogic.gdx.graphics.GL20;
 import com.badlogic.gdx.graphics.OrthographicCamera;
@@ -33,8 +34,10 @@ import com.badlogic.gdx.utils.Array;
 
 public class TestGame extends ApplicationAdapter {
 
+	private static final float MAX_RANDOM_BOX_TIME = 5.0f;
+	private static final float MIN_RANDOM_BOX_TIME = 2.0f;
 	SpriteBatch batch;
-	Texture img, runningDogImage, levelImage;
+	Texture img, runningDogImage, levelImage, introImage;
 
 	public static final int WORLD_WIDTH = 360; // 480
 	public static final int WORLD_HEIGHT = 240; // 360
@@ -90,8 +93,10 @@ public class TestGame extends ApplicationAdapter {
 	int scoreTarget = 0;
 	float levelCountdown = 0;
 	float nextLevelCountdown = 0;
+	float randomBoxTimer = 0;
 	int currentLevel = 0;
 	LevelState levelState;
+	GameState gameState;
 
 	private BitmapFont font;
 
@@ -105,6 +110,10 @@ public class TestGame extends ApplicationAdapter {
 	private Map<String,Animation<TextureRegion>> anims;
 
 	boolean isRunning;
+
+	Sound inGameMusic, beforeGameMusic;
+
+	Map<String, Sound> sounds = new HashMap<String, Sound>();
 
 	@Override
 	public void create () {
@@ -123,6 +132,7 @@ public class TestGame extends ApplicationAdapter {
 		img = new Texture("player.png");
 		runningDogImage = new Texture("runningDog.png");
 		levelImage = new Texture("level-01.png");
+		introImage = new Texture("intro.png");
 
 		targetImages.put(Food.GREEN, new Texture("pot-target.png"));
 		targetImages.put(Food.RED, new Texture("oven-target.png"));
@@ -138,12 +148,13 @@ public class TestGame extends ApplicationAdapter {
 		anims.put("idle", loadAnimation("chef-idle.png", 2, 0.2f));
 		anims.put("run", loadAnimation("chef-run.png", 4, 0.1f));
 		anims.put("rat-run", loadAnimation("rat-run.png", 2, 0.1f));
+		anims.put("smoke-effect", loadAnimation("smoke-effect.png", 4, 0.2f));
 
 		// fonts
 		loadFonts();
 
 		// build levels
-		levelDatas.add(new LevelData(0, 4, 3, 10, Arrays.asList(Food.GREEN)));
+		levelDatas.add(new LevelData(0, 3, 2, 10, Arrays.asList(Food.GREEN)));
 		levelDatas.add(new LevelData(1, 4, 4, 12, Arrays.asList(Food.BLUE, Food.RED)));
 		levelDatas.add(new LevelData(3, 3, 5, 14, Arrays.asList(Food.RED, Food.GREEN)));
 		levelDatas.add(new LevelData(2, 6, 5, 16, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
@@ -153,8 +164,22 @@ public class TestGame extends ApplicationAdapter {
 		levelDatas.add(new LevelData(6, 8, 10, 24, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
 		levelDatas.add(new LevelData(4, 12, 12, 30, Arrays.asList(Food.GREEN, Food.RED, Food.BLUE)));
 
+		// MUSIC AND SOUND
+		inGameMusic = Gdx.audio.newSound(Gdx.files.internal("full.mp3"));
+		beforeGameMusic = Gdx.audio.newSound(Gdx.files.internal("slow.mp3"));
+		sounds.put("lose", Gdx.audio.newSound(Gdx.files.internal("lose 1.mp3")));
+		sounds.put("win", Gdx.audio.newSound(Gdx.files.internal("win3 1.mp3")));
+		sounds.put("scream", Gdx.audio.newSound(Gdx.files.internal("scream2 1.mp3")));
+		sounds.put("splash", Gdx.audio.newSound(Gdx.files.internal("splash 1.mp3")));
+		sounds.put("throw", Gdx.audio.newSound(Gdx.files.internal("throw3.mp3")));
+		sounds.put("pickup", Gdx.audio.newSound(Gdx.files.internal("woop1 1.mp3")));
+
 		// start game
-		resetGame();
+		playMusic(false);
+		gameState = GameState.INTRO;
+
+
+//		resetGame();
 	}
 
 	private Animation<TextureRegion> loadAnimation(String fileName, int numberOfFrames, float frameDelay) {
@@ -190,6 +215,25 @@ public class TestGame extends ApplicationAdapter {
 		batch.setProjectionMatrix(camera.combined);
 	}
 
+	private void playSound(String name) {
+		Sound sound = sounds.get(name);
+		if (name.equals("win") || name.equals("lose")) {
+			sound.play(1.0f);
+		} else {
+			sound.play(0.3f, MathUtils.random(0.8f,1.2f), 0.5f);
+		}
+	}
+
+	private void playMusic(boolean inGame) {
+		if (inGame) {
+			beforeGameMusic.stop();
+			inGameMusic.loop(0.2f);
+		} else {
+			inGameMusic.stop();
+			beforeGameMusic.loop(0.2f);
+		}
+	}
+
 	@Override
 	public void render () {
 		camera.position.set(getLerpCamera());
@@ -200,16 +244,6 @@ public class TestGame extends ApplicationAdapter {
 		handleInput();
 		update();
 
-		if (!world.isLocked()) {
-			for (Body deadBody : deadBodies) {
-				world.destroyBody(deadBody);
-			}
-			deadBodies.clear();
-		}
-
-		world.step(Gdx.graphics.getDeltaTime(), 6, 2);
-		playerBody.setAwake(true);
-
 		Gdx.gl.glClearColor(0f, 0f, 0f, 1);
 		Gdx.gl.glClear(GL20.GL_COLOR_BUFFER_BIT);
 
@@ -217,56 +251,68 @@ public class TestGame extends ApplicationAdapter {
 
 
 		Vector2 offset = new Vector2(camera.position.x, camera.position.y).sub(WORLD_WIDTH / 2.0f, WORLD_HEIGHT / 2.0f);
-		batch.draw(levelImage, 0, 0);
 
-		Vector2 pos = getDrawPlayerPos();
+		if (gameState == GameState.PLAYING) {
+			batch.draw(levelImage, 0, 0);
 
-		for (Target target : targets) {
-			Texture texture = targetImages.get(target.type);
-			batch.draw(texture, target.rect.x, target.rect.y);
+			Vector2 pos = getDrawPlayerPos();
+
+			for (Target target : targets) {
+				Texture texture = targetImages.get(target.type);
+				batch.draw(texture, target.rect.x, target.rect.y);
+				if (target.effectTimer > 0) {
+					TextureRegion currentFrame = anims.get("smoke-effect").getKeyFrame(animationDeltaTime, true);
+					batch.draw(currentFrame, target.rect.x, target.rect.y + 30);
+				}
+			}
+
+			for (MyBox box : boxes) {
+				Vector2 boxPos = box.drawPos;
+				Texture boxTex = boxImages.get(box.type);
+				batch.draw(boxTex, boxPos.x, boxPos.y);
+			}
+
+			for (Enemy enemy : enemies) {
+				Vector2 enemyPos = enemy.box.drawPos;
+				TextureRegion currentFrame = anims.get("rat-run").getKeyFrame(animationDeltaTime, true);
+				batch.draw(currentFrame, enemyPos.x, enemyPos.y);
+			}
+
+			// draw player
+			if (isRunning) {
+				TextureRegion currentFrame = anims.get("run").getKeyFrame(animationDeltaTime, true);
+				batch.draw(currentFrame, pos.x, pos.y);
+			} else {
+				TextureRegion currentFrame = anims.get("idle").getKeyFrame(animationDeltaTime, true);
+				batch.draw(currentFrame, pos.x, pos.y);
+			}
+
+
+			font.draw(batch, "" + score + "/" + scoreTarget, 20.0f + offset.x, 220.0f + offset.y);
+			if (levelState == LevelState.PLAYING) {
+				font.draw(batch, "" + (int) levelCountdown + "s", 300.0f + offset.x, 220.0f + + offset.y);
+			}
+
+			if (levelState == LevelState.OVER) {
+				font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f + offset.x, 220.0f + offset.y);
+				font.draw(batch, "TOO MUCH PRESSURE", 80.0f + offset.x, 150.0f + offset.y);
+				font.draw(batch, "press 'Enter' to play again", 70.0f + offset.x, 60.0f + offset.y);
+			}
+			if (levelState == LevelState.NEXT) {
+				font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f + offset.x, 220.0f + offset.y);
+				font.draw(batch, "YOU DID IT!", 120.0f + offset.x, 150.0f + offset.y);
+			}
+			if (levelState == LevelState.WON) {
+				font.draw(batch, "WELL DONE", 120.0f + offset.x, 190.0f + offset.y);
+				font.draw(batch, "YOU SURVIVED THE CHAOS KITCHEN", 4.0f + offset.x, 150.0f + offset.y);
+				font.draw(batch, "press 'Enter' to play again", 50.0f + offset.x, 60.0f + offset.y);
+			}
 		}
 
-		for (MyBox box : boxes) {
-			Vector2 boxPos = box.drawPos;
-			Texture boxTex = boxImages.get(box.type);
-			batch.draw(boxTex, boxPos.x, boxPos.y);
+		if (gameState == GameState.INTRO) {
+			batch.draw(introImage, offset.x, offset.y);
 		}
 
-		for (Enemy enemy : enemies) {
-			Vector2 enemyPos = enemy.box.drawPos;
-			TextureRegion currentFrame = anims.get("rat-run").getKeyFrame(animationDeltaTime, true);
-			batch.draw(currentFrame, enemyPos.x, enemyPos.y);
-		}
-
-		// draw player
-		if (isRunning) {
-			TextureRegion currentFrame = anims.get("run").getKeyFrame(animationDeltaTime, true);
-			batch.draw(currentFrame, pos.x, pos.y);
-		} else {
-			TextureRegion currentFrame = anims.get("idle").getKeyFrame(animationDeltaTime, true);
-			batch.draw(currentFrame, pos.x, pos.y);
-		}
-
-
-		font.draw(batch, "" + score + "/" + scoreTarget, 20.0f + offset.x, 220.0f + offset.y);
-		if (levelState == LevelState.PLAYING) {
-			font.draw(batch, "" + (int) levelCountdown + "s", 300.0f + offset.x, 220.0f + + offset.y);
-		}
-
-		if (levelState == LevelState.OVER) {
-			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f + offset.x, 220.0f + offset.y);
-			font.draw(batch, "TOO MUCH PRESSURE", 80.0f + offset.x, 150.0f + offset.y);
-			font.draw(batch, "press 'Enter' to play again", 70.0f + offset.x, 60.0f + offset.y);
-		}
-		if (levelState == LevelState.NEXT) {
-			font.draw(batch, "" + (int) nextLevelCountdown + "s", 300.0f + offset.x, 220.0f + offset.y);
-			font.draw(batch, "YOU DID IT!", 120.0f + offset.x, 150.0f + offset.y);
-		}
-		if (levelState == LevelState.WON) {
-			font.draw(batch, "WELL DONE", 120.0f + offset.x, 190.0f + offset.y);
-			font.draw(batch, "YOU SURVIVED THE CHAOS KITCHEN", 4.0f + offset.x, 150.0f + offset.y);
-			font.draw(batch, "press 'Enter' to play again", 50.0f + offset.x, 60.0f + offset.y);
-		}
 
 		//batch.draw(boxImage, pickupPos.x, pickupPos.y);
 
@@ -318,6 +364,7 @@ public class TestGame extends ApplicationAdapter {
 			levelState = LevelState.PLAYING;
 			resetLevel();
 			currentLevel++;
+			randomBoxTimer = MathUtils.random(MIN_RANDOM_BOX_TIME, MAX_RANDOM_BOX_TIME);
 		}
 	}
 
@@ -373,8 +420,19 @@ public class TestGame extends ApplicationAdapter {
 	// UPDATE
 
 	public void update() {
-		if (levelState == LevelState.PLAYING && enemies.size() == 0 && boxes.size() == 0) {
+
+		if (gameState == GameState.INTRO) {
+			return;
+		}
+
+		if (levelState == LevelState.PLAYING && score >= scoreTarget) {
 			finishLevel();
+		}
+
+		randomBoxTimer = randomBoxTimer - Gdx.graphics.getDeltaTime();
+		if (levelState == LevelState.PLAYING && randomBoxTimer < 0) {
+			randomBoxTimer = MathUtils.random(MIN_RANDOM_BOX_TIME, MAX_RANDOM_BOX_TIME);
+			addRandomBox();
 		}
 
 		if (levelCountdown > 0) {
@@ -422,35 +480,65 @@ public class TestGame extends ApplicationAdapter {
 		}
 
 		for (Target target : targets) {
-
-			Iterator<MyBox> iter = boxes.listIterator();
-			while (iter.hasNext()) {
-				MyBox thisBox = iter.next();
-				Vector2 boxPos = fromBox2d(thisBox.body.getPosition());
-				Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
-
-
-				if (boxRect.overlaps(target.rect) && target.type.equals(thisBox.type) && pickedBox == null) {
-					world.destroyBody(thisBox.body);
-					iter.remove();
-					score = score + 1;
+			target.update();
+			for (MyBox box : boxes) {
+				if (box.boxState == MyBox.BoxState.ALIVE) {
+					Vector2 boxPos = box.getPosition();
+					Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
+					if (boxRect.overlaps(target.rect) && target.type.equals(box.type) && pickedBox == null) {
+						box.boxState = MyBox.BoxState.IN_TARGET;
+						target.causeSmokeEffect();
+						box.startTargetTimer();
+						score = score + 1;
+						playSound("splash");
+					}
 				}
 			}
 
-			Iterator<Enemy> iter2 = enemies.listIterator();
-			while (iter2.hasNext()) {
-				Enemy enemy = iter2.next();
-				if (enemy.airCooldown > 0) {
+			for (Enemy enemy : enemies) {
+				if (enemy.airCooldown > 0 && enemy.box.boxState == MyBox.BoxState.ALIVE) {
 					Vector2 boxPos = fromBox2d(enemy.box.body.getPosition());
 					Rectangle boxRect = new Rectangle(boxPos.x, boxPos.y, TILE_SIZE, TILE_SIZE);
 					if (boxRect.overlaps(target.rect) && target.type.equals(enemy.box.type)) {
-						world.destroyBody(enemy.box.body);
-						iter2.remove();
+						enemy.box.boxState = MyBox.BoxState.IN_TARGET;
+						enemy.box.startTargetTimer();
+						target.causeSmokeEffect();
 						score = score + 1;
+						playSound("scream");
+						playSound("splash");
 					}
 				}
 			}
 		}
+
+		// CLEAN THE DEAD
+		Iterator<Enemy> enemyIter = enemies.listIterator();
+		while (enemyIter.hasNext()) {
+			Enemy enemy = enemyIter.next();
+			if (enemy.box.boxState == MyBox.BoxState.DEAD) {
+				world.destroyBody(enemy.box.body);
+				enemyIter.remove();
+			}
+		}
+
+		Iterator<MyBox> iter = boxes.listIterator();
+		while (iter.hasNext()) {
+			MyBox thisBox = iter.next();
+			if (thisBox.boxState == MyBox.BoxState.DEAD) {
+				world.destroyBody(thisBox.body);
+				iter.remove();
+			}
+		}
+
+		if (!world.isLocked()) {
+			for (Body deadBody : deadBodies) {
+				world.destroyBody(deadBody);
+			}
+			deadBodies.clear();
+		}
+
+		world.step(Gdx.graphics.getDeltaTime(), 6, 2);
+		playerBody.setAwake(true);
 
 	}
 
@@ -458,12 +546,15 @@ public class TestGame extends ApplicationAdapter {
 		clearLevel();
 		if (score < scoreTarget) {
 			levelState = LevelState.OVER;
+			playSound("lose");
+			playMusic(false);
 		} else {
 			if (currentLevel < levelDatas.size()) {
 				nextLevelCountdown = NEXT_LEVEL_TIMER;
 				levelState = LevelState.NEXT;
 			} else {
 				levelState = LevelState.WON;
+				playSound("win");
 			}
 		}
 	}
@@ -513,6 +604,9 @@ public class TestGame extends ApplicationAdapter {
 	}
 
 	private Vector2 getPlayerPos() {
+		if (playerBody == null) {
+			return new Vector2();
+		}
 		return fromBox2d(playerBody.getPosition().cpy());
 	}
 
@@ -523,6 +617,15 @@ public class TestGame extends ApplicationAdapter {
 	// INPUT
 
 	public void handleInput() {
+
+		if (gameState == GameState.INTRO) {
+			if (Gdx.input.isKeyPressed(Input.Keys.SPACE)) {
+				resetGame();
+				playMusic(true);
+				gameState = GameState.PLAYING;
+			}
+			return;
+		}
 
 		float actualSpeed = PLAYER_SPEED * Gdx.graphics.getDeltaTime();
 		boolean isLeftPressed = Gdx.input.isKeyPressed(Input.Keys.LEFT) || Gdx.input.isKeyPressed(Input.Keys.A);
@@ -572,6 +675,7 @@ public class TestGame extends ApplicationAdapter {
 		}
 		if (Gdx.input.isKeyPressed(Input.Keys.ENTER) && (levelState == LevelState.WON || levelState == LevelState.OVER) ) {
 			resetGame();
+			playMusic(true);
 		}
 	}
 
@@ -609,6 +713,7 @@ public class TestGame extends ApplicationAdapter {
 				pickedBox = box;
 				pickedBox.drawPos = pickedBox.getPosition().cpy();
 				pickedBox.lerpTimer = BOX_LERP_TIMER;
+				playSound("pickup");
 			}
 		}
 		for (Enemy enemy : enemies) {
@@ -619,6 +724,7 @@ public class TestGame extends ApplicationAdapter {
 				pickedBox = box;
 				pickedBox.drawPos = pickedBox.getPosition().cpy();
 				pickedBox.lerpTimer = BOX_LERP_TIMER;
+				playSound("pickup");
 			}
 		}
 	}
@@ -640,7 +746,18 @@ public class TestGame extends ApplicationAdapter {
 			thrownMove = amount;
 			pickedBox = null;
 			throwCooldown = THROW_COOLDOWN;
+			playSound("throw");
 		}
+	}
+
+	private void addRandomBox() {
+		Vector2 randPos = new Vector2(
+				random(WORLD_BUFFER,WORLD_WIDTH - WORLD_BUFFER),
+				random(WORLD_BUFFER, WORLD_HEIGHT - WORLD_BUFFER));
+		MyBox box = entityFactory.createBox(world, randPos, getRandomFood(levelFood));
+		box.drawPos = getRandomEdge();
+		box.lerpTimer = BOX_LERP_TIMER;
+		boxes.add(box);
 	}
 
 	private Vector2 getRandomEdge() {
@@ -682,6 +799,11 @@ public class TestGame extends ApplicationAdapter {
 
 	public static Vector2 fromBox2d(Vector2 box2dWorld) {
 		return box2dWorld.scl(FROM_BOX2D);
+	}
+
+	public enum GameState {
+		INTRO,
+		PLAYING
 	}
 
 }
